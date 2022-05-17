@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"time"
 
@@ -15,7 +16,7 @@ type Response struct {
 const count = 7
 
 func main() {
-	events, responses := bossworker.NewBoss(3, time.Second*2, 100, worker)
+	events, responses := bossworker.NewBoss(3, time.Second, 100, worker)
 	go produceValues(events)
 	for i := 0; i < count; i++ {
 		resp := <-responses
@@ -24,12 +25,14 @@ func main() {
 	log.Println("done")
 }
 
-func worker(req int) Response {
+func worker(ctx context.Context, req int) Response {
 	log.Println("work")
 	time.Sleep(time.Millisecond * 1200)
-	return Response{
-		val: req * 2,
-		err: nil,
+	select {
+	case <-ctx.Done():
+		return Response{err: ctx.Err()}
+	default:
+		return Response{val: req * 2}
 	}
 }
 

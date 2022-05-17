@@ -1,11 +1,12 @@
 package bossworker
 
 import (
+	"context"
 	"log"
 	"time"
 )
 
-type Worker[Event any, Response any] func(Event) Response
+type Worker[Event any, Response any] func(context.Context, Event) Response
 
 func NewBoss[Event any, Response any](
 	maxWorkersCount uint,
@@ -57,8 +58,10 @@ func execute[Event any, Response any](
 	worker Worker[Event, Response],
 	event Event) {
 	subResponse := make(chan Response)
+	ctx, cancel := context.WithCancel(context.Background()) //with timeout?
+	defer cancel()
 	go func() {
-		subResponse <- worker(event)
+		subResponse <- worker(ctx, event)
 	}()
 	select {
 	case newResp := <-subResponse:
@@ -68,6 +71,7 @@ func execute[Event any, Response any](
 		return
 	case <-time.After(workerLifetime):
 		log.Println("worker too long")
+		cancel()
 		<-activeWorkers
 		return
 	}
