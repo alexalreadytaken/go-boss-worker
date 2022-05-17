@@ -2,85 +2,73 @@ package bossworker
 
 import (
 	"log"
-	"sync"
 	"time"
 )
 
 type Worker[Event any, Response any] func(Event) Response
 
-type Boss[Event any, Response any] struct {
-	MaxWorkersCount uint
-	WorkerLifetime  time.Duration
-	Input           chan Event
-	Output          chan Response
-	Worker          Worker[Event, Response]
-	eventsQueue     []Event
-	eventsMutex     sync.Mutex
+func NewBoss[Event any, Response any](
+	maxWorkersCount uint,
+	workerLifetime time.Duration,
+	eventsChannelBuffer int,
+	worker Worker[Event, Response]) (chan Event, chan Response) {
+	events, responses := makeChannels[Event, Response](eventsChannelBuffer)
+	go run(maxWorkersCount, workerLifetime, worker, events, responses)
+	return events, responses
 }
 
-func (boss *Boss[Event, Response]) Run() {
-	go boss.listenEvents()
-	boss.handleEvents()
-}
-
-func (boss *Boss[Event, Response]) listenEvents() {
-	for {
-		select {
-		case newAction := <-boss.Input:
-			boss.enqueue(newAction)
-		}
+func makeChannels[Event any, Response any](
+	eventsChannelBuffer int) (chan Event, chan Response) {
+	var events chan Event
+	if 0 >= eventsChannelBuffer {
+		events = make(chan Event)
+	} else {
+		events = make(chan Event, eventsChannelBuffer)
 	}
+	return events, make(chan Response)
 }
 
-func (boss *Boss[Event, Response]) handleEvents() {
-	activeWorkers := make(chan struct{}, boss.MaxWorkersCount)
+func run[Event any, Response any](
+	maxWorkersCount uint,
+	workerLifetime time.Duration,
+	worker Worker[Event, Response],
+	input chan Event,
+	output chan Response) {
+	activeWorkers := make(chan struct{}, maxWorkersCount)
 	for {
 		select {
 		case activeWorkers <- struct{}{}:
-			if !boss.haveActions() {
+			select {
+			case newEvent := <-input:
+				go execute(activeWorkers, workerLifetime, output, worker, newEvent)
+			default:
+				//without deadlock
 				<-activeWorkers
-				time.Sleep(time.Second) //maybe sleep in default: ?
 				continue
 			}
-			go boss.execute(boss.dequeue(), activeWorkers)
 		}
 	}
 }
 
-func (boss *Boss[Event, Response]) haveActions() bool {
-	boss.eventsMutex.Lock()
-	defer boss.eventsMutex.Unlock()
-	return len(boss.eventsQueue) != 0
-}
-
-func (boss *Boss[Event, Response]) execute(event Event, activeWorkers chan struct{}) {
+func execute[Event any, Response any](
+	activeWorkers chan struct{},
+	workerLifetime time.Duration,
+	output chan Response,
+	worker Worker[Event, Response],
+	event Event) {
 	subResponse := make(chan Response)
 	go func() {
-		subResponse <- boss.Worker(event)
+		subResponse <- worker(event)
 	}()
 	select {
 	case newResp := <-subResponse:
-		boss.Output <- newResp
+		output <- newResp
 		log.Println("worker done")
 		<-activeWorkers
 		return
-	case <-time.After(boss.WorkerLifetime):
+	case <-time.After(workerLifetime):
 		log.Println("worker too long")
 		<-activeWorkers
 		return
 	}
-}
-
-func (boss *Boss[Event, Response]) enqueue(event Event) {
-	boss.eventsMutex.Lock()
-	boss.eventsQueue = append(boss.eventsQueue, event)
-	boss.eventsMutex.Unlock()
-}
-
-func (boss *Boss[Event, Response]) dequeue() Event {
-	boss.eventsMutex.Lock()
-	defer boss.eventsMutex.Unlock()
-	elem := boss.eventsQueue[0]
-	boss.eventsQueue = boss.eventsQueue[1:]
-	return elem
 }

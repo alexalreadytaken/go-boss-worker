@@ -12,41 +12,31 @@ type Response struct {
 	err error
 }
 
-func main() {
-	events := make(chan int)
-	responses := make(chan Response)
+const count = 7
 
+func main() {
+	events, responses := bossworker.NewBoss(3, time.Second*2, 100, worker)
 	go produceValues(events)
-	go consumeValues(responses)
-	boss := bossworker.Boss[int, Response]{
-		MaxWorkersCount: 3,
-		WorkerLifetime:  time.Second * 4,
-		Input:           events,
-		Output:          responses,
-		Worker:          worker,
+	for i := 0; i < count; i++ {
+		resp := <-responses
+		log.Println("response=", resp)
 	}
-	boss.Run()
+	log.Println("done")
 }
 
 func worker(req int) Response {
 	log.Println("work")
-	time.Sleep(time.Millisecond * 200)
+	time.Sleep(time.Millisecond * 1200)
 	return Response{
 		val: req * 2,
 		err: nil,
 	}
 }
 
-func produceValues(actions chan int) {
-	for i := 0; i < 10; i++ {
+func produceValues(events chan int) {
+	for i := 0; i < count; i++ {
 		log.Println("produce")
 		time.Sleep(time.Millisecond * 100)
-		actions <- 20
-	}
-}
-
-func consumeValues(responses chan Response) {
-	for resp := range responses {
-		log.Println("response=", resp)
+		events <- 20
 	}
 }
