@@ -42,8 +42,8 @@ func run[Event any, Response any](
 			select {
 			case newEvent := <-input:
 				go execute(activeWorkers, workerLifetime, output, worker, newEvent)
-			default:
-				//without deadlock
+			default: //without deadlock
+				time.Sleep(time.Millisecond * 50)
 				<-activeWorkers
 				continue
 			}

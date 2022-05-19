@@ -13,10 +13,10 @@ type Response struct {
 	err error
 }
 
-const count = 7
+const count = 1_000_000
 
 func main() {
-	events, responses := bossworker.NewBoss(3, time.Second, 100, worker)
+	events, responses := bossworker.NewBoss(200, time.Second, 100, worker)
 	go produceValues(events)
 	for i := 0; i < count; i++ {
 		resp := <-responses
@@ -27,7 +27,6 @@ func main() {
 
 func worker(ctx context.Context, req int) Response {
 	log.Println("work")
-	time.Sleep(time.Millisecond * 1200)
 	select {
 	case <-ctx.Done():
 		return Response{err: ctx.Err()}
@@ -39,7 +38,6 @@ func worker(ctx context.Context, req int) Response {
 func produceValues(events chan int) {
 	for i := 0; i < count; i++ {
 		log.Println("produce")
-		time.Sleep(time.Millisecond * 100)
-		events <- 20
+		events <- i
 	}
 }
