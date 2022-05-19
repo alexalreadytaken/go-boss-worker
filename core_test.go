@@ -41,7 +41,7 @@ func (s *BossWorkerCoreTestSuite) SetupSuite() {
 	var count uint = 2
 	timeout := time.Second * 2
 	buffer := 10
-	input, output := NewBoss(uint(count), timeout, buffer, testWorker)
+	input, output := NewBoss(count, timeout, buffer, testWorker)
 	s.workersCount = count
 	s.workerTimeout = timeout
 	s.workersInputBuffer = buffer
@@ -67,24 +67,21 @@ func testWorkerDonePositive(s *BossWorkerCoreTestSuite) {
 func testWorkerTimeout(s *BossWorkerCoreTestSuite) {
 	val := 10
 	s.bossInput <- TestEvent{val, time.Second * 3}
-	select {
-	case <-s.bossOutput:
-		s.Fail("worker continue execution after timeout")
-	case <-time.After(s.workerTimeout):
-		return
-	}
+	//fix
+	time.Sleep(s.workerTimeout)
+	s.Equal(0, len(s.bossOutput))
 }
 
 func testConcurrency(s *BossWorkerCoreTestSuite) {
 	s.bossInput <- TestEvent{10, time.Second}
 	s.bossInput <- TestEvent{10, time.Second}
-	select {
-	case <-time.After(s.workerTimeout):
-		s.Fail("workers executing longer than must")
-	default:
-		for i := 0; i < int(s.workersCount); i++ {
-			res := <-s.bossOutput
+	timeout := time.After(s.workerTimeout)
+	for i := 0; i < 2; i++ {
+		select {
+		case res := <-s.bossOutput:
 			s.Equal(100, res)
+		case <-timeout:
+			s.Fail("workers executing longer than must")
 		}
 	}
 }
